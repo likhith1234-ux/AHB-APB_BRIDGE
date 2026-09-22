@@ -1,0 +1,165 @@
+module ahb_master(
+
+    input         hclk,
+    input         hresetn,
+    input         hreadyout,
+    input [31:0]  hrdata,
+
+    output reg [31:0] haddr,
+    output reg [31:0] hwdata,
+    output reg        hwrite,
+    output reg        hreadyin,
+    output reg [1:0]  htrans
+);
+
+reg [2:0] hburst;
+reg [2:0] hsize;
+
+integer i;
+task single_write;
+input [31:0] addr;
+input [31:0] data;
+
+begin
+
+@(posedge hclk);
+#1;
+
+hwrite   = 1'b1;
+htrans   = 2'b10;     // NONSEQ
+hburst   = 3'b000;    // SINGLE
+hsize    = 3'b010;    // WORD
+hreadyin = 1'b1;
+
+haddr    = addr;
+hwdata   = data;
+
+end
+endtask
+
+task single_read;
+input [31:0] addr;
+
+begin
+
+@(posedge hclk);
+#1;
+
+hwrite   = 1'b0;
+htrans   = 2'b10;
+hburst   = 3'b000;
+hsize    = 3'b010;
+hreadyin = 1'b1;
+
+haddr    = addr;
+
+end
+endtask
+
+task burst_write;
+input [31:0] start_addr;
+
+begin
+
+hwrite   = 1'b1;
+hburst   = 3'b011;   // INCR4
+hsize    = 3'b010;
+hreadyin = 1'b1;
+
+for(i=0;i<4;i=i+1)
+begin
+
+    @(posedge hclk);
+    #1;
+
+    if(i==0)
+        htrans = 2'b10;   // NONSEQ
+    else
+        htrans = 2'b11;   // SEQ
+
+    haddr  = start_addr + (i*4);
+    hwdata = 32'h1000 + i;
+
+end
+
+end
+endtask
+
+task wrap_write;
+input [31:0] start_addr;
+
+reg [31:0] wrap_addr;
+
+begin
+
+hwrite   = 1'b1;
+hburst   = 3'b010;      // WRAP4
+hsize    = 3'b010;
+hreadyin = 1'b1;
+
+wrap_addr = start_addr;
+
+for(i=0;i<4;i=i+1)
+begin
+
+    @(posedge hclk);
+    #1;
+
+    if(i==0)
+        htrans = 2'b10;
+    else
+        htrans = 2'b11;
+
+    haddr  = wrap_addr;
+    hwdata = 32'h2000 + i;
+
+    wrap_addr = wrap_addr + 4;
+
+    if(wrap_addr == start_addr + 16)
+        wrap_addr = start_addr;
+
+end
+
+end
+endtask
+
+initial
+begin
+
+haddr    = 0;
+hwdata   = 0;
+hwrite   = 0;
+hreadyin = 0;
+htrans   = 0;
+hburst   = 0;
+hsize    = 0;
+
+wait(hresetn);
+
+#20;
+
+single_write(
+    32'h8000_0004,
+    32'h1234_5678
+);
+
+#20;
+
+single_read(
+    32'h8000_0004
+);
+
+#20;
+
+burst_write(
+    32'h8400_0000
+);
+
+#20;
+
+wrap_write(
+    32'h8800_0000
+);
+
+end
+endmodule
